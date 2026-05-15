@@ -218,6 +218,9 @@ RUN chmod +x /usr/bin/kustomize.sh
 
 COPY data.json /var/lib/rancher-data/driver-metadata/
 
+# Overlay custom dashboard build if present (AI diagnosis feature)
+COPY dashboard-dist/ /usr/share/rancher/ui-dashboard/dashboard/
+
 ENV CATTLE_AGENT_IMAGE ${IMAGE_REPO}/rancher-agent:${VERSION}
 ENV CATTLE_SERVER_IMAGE ${IMAGE_REPO}/rancher
 ENV ETCDCTL_API=3

@@ -1,0 +1,43 @@
+#!/bin/bash
+set -e
+
+# Build custom dashboard with AI diagnosis feature and copy dist to package/dashboard-dist/
+# Usage: ./scripts/build-custom-dashboard [path-to-dashboard-repo]
+
+DASHBOARD_DIR="${1:-$(dirname "$(dirname "$0")")/../dashboard}"
+PACKAGE_DIR="$(dirname "$(dirname "$0")")/package"
+
+if [ ! -d "$DASHBOARD_DIR" ]; then
+    echo "ERROR: Dashboard directory not found at $DASHBOARD_DIR"
+    echo "Usage: $0 <path-to-dashboard-repo>"
+    exit 1
+fi
+
+echo "==> Building custom dashboard from: $DASHBOARD_DIR"
+
+cd "$DASHBOARD_DIR"
+
+if [ ! -f "package.json" ]; then
+    echo "ERROR: package.json not found in $DASHBOARD_DIR"
+    exit 1
+fi
+
+echo "==> Installing dependencies..."
+yarn install --frozen-lockfile 2>/dev/null || yarn install
+
+echo "==> Building dashboard for production..."
+yarn build
+
+DIST_DIR="$DASHBOARD_DIR/dist"
+if [ ! -d "$DIST_DIR" ]; then
+    echo "ERROR: Build output not found at $DIST_DIR"
+    exit 1
+fi
+
+echo "==> Copying build output to package/dashboard-dist/"
+rm -rf "$PACKAGE_DIR/dashboard-dist"
+cp -r "$DIST_DIR" "$PACKAGE_DIR/dashboard-dist"
+
+echo "==> Custom dashboard build complete!"
+echo "    Output: $PACKAGE_DIR/dashboard-dist/"
+echo "    Run 'make package' or 'docker build' to create the Rancher image."

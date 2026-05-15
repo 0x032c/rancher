@@ -6,6 +6,7 @@ import (
 
 	gmux "github.com/gorilla/mux"
 	"github.com/rancher/rancher/pkg/api/steve/aggregation"
+	"github.com/rancher/rancher/pkg/api/steve/aidiag"
 	"github.com/rancher/rancher/pkg/api/steve/github"
 	"github.com/rancher/rancher/pkg/api/steve/health"
 	"github.com/rancher/rancher/pkg/api/steve/projects"
@@ -58,6 +59,7 @@ func AdditionalAPIs(ctx context.Context, config *wrangler.Context, steve *steve.
 	mux.Handle("/v1/github{path:.*}", githubHandler)
 	mux.Handle("/v3/connect", Tunnel(config))
 	health.Register(mux)
+	aidiag.Register(mux, config.RESTConfig)
 
 	return func(next http.Handler) http.Handler {
 		mux.NotFoundHandler = clusterAPI(next)
