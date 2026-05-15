@@ -75,6 +75,17 @@ func BuildDiagnosticPrompt(info *ResourceInfo, userMessage string) []ChatMessage
 	return messages
 }
 
+// BuildFreeChat builds messages for general conversation without resource context.
+func BuildFreeChat(history []ChatMessage, userMessage string) []ChatMessage {
+	messages := []ChatMessage{
+		{Role: "system", Content: systemPrompt},
+	}
+	messages = append(messages, history...)
+	messages = append(messages, ChatMessage{Role: "user", Content: userMessage})
+
+	return messages
+}
+
 // BuildConversationPrompt builds messages for follow-up conversation, keeping
 // the original resource context as the first message and appending history.
 func BuildConversationPrompt(info *ResourceInfo, history []ChatMessage, userMessage string) []ChatMessage {

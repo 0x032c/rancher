@@ -4,8 +4,11 @@ set -e
 # Build custom dashboard with AI diagnosis feature and copy dist to package/dashboard-dist/
 # Usage: ./scripts/build-custom-dashboard [path-to-dashboard-repo]
 
-DASHBOARD_DIR="${1:-$(dirname "$(dirname "$0")")/../dashboard}"
-PACKAGE_DIR="$(dirname "$(dirname "$0")")/package"
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+RANCHER_ROOT="$(dirname "$SCRIPT_DIR")"
+DASHBOARD_DIR="${1:-$RANCHER_ROOT/../dashboard}"
+DASHBOARD_DIR="$(cd "$DASHBOARD_DIR" && pwd)"
+PACKAGE_DIR="$RANCHER_ROOT/package"
 
 if [ ! -d "$DASHBOARD_DIR" ]; then
     echo "ERROR: Dashboard directory not found at $DASHBOARD_DIR"
@@ -22,11 +25,16 @@ if [ ! -f "package.json" ]; then
     exit 1
 fi
 
-echo "==> Installing dependencies..."
-yarn install --frozen-lockfile 2>/dev/null || yarn install
+export NODE_OPTIONS="${NODE_OPTIONS:-} --openssl-legacy-provider --max-old-space-size=2048"
 
-echo "==> Building dashboard for production..."
-yarn build
+echo "==> Installing dependencies..."
+yarn install --frozen-lockfile --ignore-engines 2>/dev/null || yarn install --ignore-engines
+
+export ROUTER_BASE="/dashboard/"
+
+echo "==> Building dashboard for production (low-mem mode)..."
+echo "    ROUTER_BASE=$ROUTER_BASE"
+NUXT_BUILD_LOW_MEM=1 yarn build
 
 DIST_DIR="$DASHBOARD_DIR/dist"
 if [ ! -d "$DIST_DIR" ]; then

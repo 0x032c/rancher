@@ -3,11 +3,16 @@ package aidiag
 import (
 	"encoding/json"
 	"fmt"
+	"net"
 	"net/http"
+	"strings"
+	"time"
 
 	"github.com/gorilla/mux"
+	"github.com/rancher/rancher/pkg/auth/tokens"
 	"github.com/rancher/rancher/pkg/settings"
 	"github.com/sirupsen/logrus"
+	k8suser "k8s.io/apiserver/pkg/authentication/user"
 	"k8s.io/apiserver/pkg/endpoints/request"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
@@ -81,37 +86,36 @@ func (h *Handler) handleChat(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if req.Kind == "" || req.Name == "" {
-		http.Error(w, `{"error":"kind and name are required"}`, http.StatusBadRequest)
-		return
-	}
-
-	if req.Message == "" {
+	if req.Message == "" && req.Kind != "" {
 		req.Message = fmt.Sprintf("Please diagnose this %s and identify any issues.", req.Kind)
 	}
-
-	impersonateConfig := rest.CopyConfig(h.restConfig)
-	impersonateConfig.Impersonate = rest.ImpersonationConfig{
-		UserName: userInfo.GetName(),
-		Groups:   userInfo.GetGroups(),
-	}
-
-	k8sClient, err := kubernetes.NewForConfig(impersonateConfig)
-	if err != nil {
-		logrus.Errorf("Failed to create impersonated k8s client: %v", err)
-		http.Error(w, `{"error":"failed to create kubernetes client"}`, http.StatusInternalServerError)
+	if req.Message == "" {
+		http.Error(w, `{"error":"message is required"}`, http.StatusBadRequest)
 		return
 	}
 
-	collector := NewCollector(k8sClient)
-	info, err := collector.Collect(r.Context(), req.Kind, req.Namespace, req.Name)
-	if err != nil {
-		logrus.Errorf("Failed to collect resource info for %s/%s/%s: %v", req.Kind, req.Namespace, req.Name, err)
-		http.Error(w, fmt.Sprintf(`{"error":"failed to collect resource info: %s"}`, err.Error()), http.StatusInternalServerError)
-		return
-	}
+	var messages []ChatMessage
 
-	messages := BuildConversationPrompt(info, req.History, req.Message)
+	if req.Kind != "" && req.Name != "" {
+		k8sClient, err := h.getK8sClient(r, req.ClusterID, userInfo)
+		if err != nil {
+			logrus.Errorf("Failed to create k8s client for cluster %s: %v", req.ClusterID, err)
+			http.Error(w, `{"error":"failed to create kubernetes client"}`, http.StatusInternalServerError)
+			return
+		}
+
+		collector := NewCollector(k8sClient)
+		info, err := collector.Collect(r.Context(), req.Kind, req.Namespace, req.Name)
+		if err != nil {
+			logrus.Errorf("Failed to collect resource info for %s/%s/%s (cluster=%s): %v", req.Kind, req.Namespace, req.Name, req.ClusterID, err)
+			http.Error(w, fmt.Sprintf(`{"error":"failed to collect resource info: %s"}`, err.Error()), http.StatusInternalServerError)
+			return
+		}
+
+		messages = BuildConversationPrompt(info, req.History, req.Message)
+	} else {
+		messages = BuildFreeChat(req.History, req.Message)
+	}
 
 	flusher, ok := w.(http.Flusher)
 	if !ok {
@@ -125,7 +129,7 @@ func (h *Handler) handleChat(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("X-Accel-Buffering", "no")
 	flusher.Flush()
 
-	err = h.aiClient.StreamChat(r.Context(), messages, func(content string) error {
+	err := h.aiClient.StreamChat(r.Context(), messages, func(content string) error {
 		data, _ := json.Marshal(map[string]string{"content": content})
 		_, writeErr := fmt.Fprintf(w, "data: %s\n\n", data)
 		if writeErr != nil {
@@ -144,4 +148,48 @@ func (h *Handler) handleChat(w http.ResponseWriter, r *http.Request) {
 
 	fmt.Fprintf(w, "data: [DONE]\n\n")
 	flusher.Flush()
+}
+
+// getK8sClient returns a kubernetes.Interface for the target cluster.
+// For local cluster: uses direct access with user impersonation.
+// For downstream clusters: proxies through Rancher's /k8s/clusters/{id}/
+// endpoint using the user's Rancher auth token, which triggers Rancher's
+// built-in impersonation-SA mechanism to enforce downstream RBAC.
+func (h *Handler) getK8sClient(r *http.Request, clusterID string, userInfo k8suser.Info) (kubernetes.Interface, error) {
+	if clusterID == "" || clusterID == "local" {
+		cfg := rest.CopyConfig(h.restConfig)
+		cfg.Impersonate = rest.ImpersonationConfig{
+			UserName: userInfo.GetName(),
+			Groups:   userInfo.GetGroups(),
+		}
+		return kubernetes.NewForConfig(cfg)
+	}
+
+	rancherToken := tokens.GetTokenAuthFromRequest(r)
+	if rancherToken == "" {
+		return nil, fmt.Errorf("no auth token found in request for downstream cluster access")
+	}
+
+	rancherURL := settings.InternalServerURL.Get()
+	if rancherURL == "" {
+		rancherURL = settings.ServerURL.Get()
+	}
+	if rancherURL == "" {
+		return nil, fmt.Errorf("neither internal-server-url nor server-url is configured")
+	}
+
+	cfg := &rest.Config{
+		Host:        fmt.Sprintf("%s/k8s/clusters/%s", strings.TrimRight(rancherURL, "/"), clusterID),
+		BearerToken: rancherToken,
+		TLSClientConfig: rest.TLSClientConfig{
+			Insecure: true,
+		},
+		Dial: (&net.Dialer{
+			Timeout:   10 * time.Second,
+			KeepAlive: 30 * time.Second,
+		}).DialContext,
+		Timeout: 30 * time.Second,
+	}
+
+	return kubernetes.NewForConfig(cfg)
 }
