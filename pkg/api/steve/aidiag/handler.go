@@ -87,7 +87,7 @@ func (h *Handler) handleChat(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if req.Message == "" && req.Kind != "" {
-		req.Message = fmt.Sprintf("Please diagnose this %s and identify any issues.", req.Kind)
+		req.Message = fmt.Sprintf("请诊断这个 %s，识别存在的问题并给出修复建议。", req.Kind)
 	}
 	if req.Message == "" {
 		http.Error(w, `{"error":"message is required"}`, http.StatusBadRequest)
