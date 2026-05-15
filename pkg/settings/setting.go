@@ -197,6 +197,13 @@ var (
 
 	// Ensure that the new Dashboard is the default UI
 	UIPreferred = NewSetting("ui-preferred", "vue")
+
+	// AI Diagnosis feature settings
+	AIEnabled   = NewSetting("ai-enabled", "false")
+	AIEndpoint  = NewSetting("ai-endpoint", "")
+	AIModel     = NewSetting("ai-model", "gpt-4o")
+	AIAPIKey    = NewSetting("ai-api-key", "")
+	AIMaxTokens = NewSetting("ai-max-tokens", "4096")
 )
 
 // FullShellImage returns the full private registry name of the rancher shell image.
