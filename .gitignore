@@ -36,3 +36,6 @@ kustomization.yaml
 kontainer-engine
 /scripts/local-package.sh
 .cursor/
+package/dashboard-dist/
+!package/dashboard-dist/.gitkeep
+*.code-workspace
